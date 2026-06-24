@@ -1,0 +1,11 @@
+.venv/
+.git/
+.github/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.env*
+chart/
+docker-compose.yml
+*kubeconfig*
+.DS_Store

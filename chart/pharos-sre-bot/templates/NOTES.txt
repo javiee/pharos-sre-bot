@@ -1,0 +1,20 @@
+Pharos SRE Bot ({{ include "pharos-sre-bot.fullname" . }}) is deployed.
+
+Webhook (ClusterIP, no ingress):
+  http://{{ include "pharos-sre-bot.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}/webhook/alert
+
+In-pod sidecars:
+  - Qdrant:         {{ if .Values.qdrant.enabled }}enabled (PVC: {{ if .Values.qdrant.persistence.enabled }}{{ .Values.qdrant.persistence.existingClaim | default (printf "%s-qdrant" (include "pharos-sre-bot.fullname" .)) }}{{ else }}emptyDir (ephemeral){{ end }}){{ else }}disabled{{ end }}
+  - Grafana MCP:    {{ if .Values.grafanaMcp.enabled }}enabled (:{{ .Values.grafanaMcp.port }}){{ else }}disabled{{ end }}
+  - Kubernetes MCP: {{ if .Values.kubernetesMcp.enabled }}enabled (:{{ .Values.kubernetesMcp.port }}, {{ if .Values.kubernetesMcp.kubeconfig.existingSecret }}external kubeconfig{{ else }}in-cluster SA{{ if .Values.kubernetesMcp.rbac.create }} + read-only RBAC{{ end }}{{ end }}){{ else }}disabled{{ end }}
+
+Runbooks: {{ if .Values.runbooks.enabled }}{{ if .Values.runbooks.existingConfigMap }}existing ConfigMap {{ .Values.runbooks.existingConfigMap }}{{ else }}from chart runbooks/ folder, mounted at {{ .Values.runbooks.mountPath }}{{ end }}{{ else }}disabled{{ end }}
+
+Quick checks:
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "pharos-sre-bot.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl -s localhost:{{ .Values.service.port }}/healthz
+
+Secrets: this chart creates NO Secret. Wire sensitive env (e.g. LLM_API_KEY,
+GRAFANA_SERVICE_ACCOUNT_TOKEN) yourself via agent.extraEnv / grafanaMcp.extraEnv
+(valueFrom.secretKeyRef) or agent.envFrom, referencing a Vault-synced Secret.
