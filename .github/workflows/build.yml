@@ -39,7 +39,6 @@ jobs:
   #         uv run pytest -q || { code=$?; [ "$code" -eq 5 ] && echo "no tests collected yet" || exit "$code"; }
 
   build-and-push:
-    needs: [test]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
