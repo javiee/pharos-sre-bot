@@ -1,0 +1,73 @@
+{{- if and .Values.kubernetesMcp.enabled .Values.kubernetesMcp.rbac.create (not .Values.kubernetesMcp.kubeconfig.existingSecret) }}
+{{- /*
+  Read-only cluster access for the in-pod Kubernetes MCP server, which (with no
+  kubeconfig) authenticates as the pod ServiceAccount. This is the real security
+  boundary: even if the agent asks for a destructive action, RBAC forbids it.
+  Only created for in-cluster auth; with a mounted kubeconfig it is unused.
+*/}}
+{{- if eq .Values.kubernetesMcp.rbac.scope "namespace" }}
+{{- /* Namespace-scoped: a Role + RoleBinding per target namespace. */}}
+{{- range $ns := (include "pharos-sre-bot.k8sRbacNamespaces" . | fromYamlArray) }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pharos-sre-bot.fullname" $ }}-k8s-readonly
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pharos-sre-bot.labels" $ | nindent 4 }}
+rules:
+  {{- include "pharos-sre-bot.k8sReadRulesNamespaced" $ | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "pharos-sre-bot.fullname" $ }}-k8s-readonly
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pharos-sre-bot.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "pharos-sre-bot.fullname" $ }}-k8s-readonly
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pharos-sre-bot.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+---
+{{- end }}
+{{- else }}
+{{- /* Cluster-scoped: one ClusterRole + ClusterRoleBinding. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pharos-sre-bot.fullname" . }}-k8s-readonly
+  labels:
+    {{- include "pharos-sre-bot.labels" . | nindent 4 }}
+rules:
+  {{- include "pharos-sre-bot.k8sReadRulesNamespaced" . | nindent 2 }}
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - namespaces
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources:
+      - nodes
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "pharos-sre-bot.fullname" . }}-k8s-readonly
+  labels:
+    {{- include "pharos-sre-bot.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "pharos-sre-bot.fullname" . }}-k8s-readonly
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pharos-sre-bot.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

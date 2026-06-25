@@ -1,0 +1,10 @@
+apiVersion: v2
+name: pharos-sre-bot
+description: |
+  Pharos SRE Bot — troubleshooting/automation agent (webhook -> RAG -> LangGraph
+  diagnosis). Deploys the agent with optional in-pod sidecars: Qdrant (vector DB,
+  backed by a PVC), the Grafana MCP server, and the Kubernetes MCP server.
+  Runbooks can be injected via a ConfigMap. No ingress.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

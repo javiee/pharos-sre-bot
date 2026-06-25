@@ -1,0 +1,11 @@
+{{- if and .Values.runbooks.enabled (not .Values.runbooks.existingConfigMap) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pharos-sre-bot.fullname" . }}-runbooks
+  labels:
+    {{- include "pharos-sre-bot.labels" . | nindent 4 }}
+data:
+  {{- /* Walk the chart-local runbooks/ folder; each file -> data[filename]. */}}
+  {{- (.Files.Glob "runbooks/*").AsConfig | nindent 2 }}
+{{- end }}
