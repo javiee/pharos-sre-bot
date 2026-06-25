@@ -1,0 +1,41 @@
+[project]
+name = "troubleshooting-agent"
+version = "0.1.0"
+description = "Core Networks troubleshooting agent PoC: webhook → RAG → LangGraph diagnosis"
+readme = "README.md"
+authors = [
+    { name = "Javier Caro Ruiz", email = "javier.ruiz@p2p.org" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    #Web server
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    #agent orchestration
+    "langgraph>=0.2.60",
+    # Vector database client
+    "openai>=1.55",
+    "qdrant-client>=1.12",
+    # Git runbook ingestion
+    "GitPython>=3.1",
+    "fastembed>=0.4",
+    # Typed configuration from environment variables
+    "pydantic-settings>=2.6",
+    "mcp>=1.2",
+]
+
+[project.scripts]
+tsa = "troubleshooting_agent.cli:main"
+
+[dependency-groups]
+# Dev-only deps; not shipped in the production image.
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.27",   # FastAPI's TestClient needs this
+]
+
+
+[build-system]
+requires = ["uv_build>=0.10.3,<0.11.0"]
+build-backend = "uv_build"
+

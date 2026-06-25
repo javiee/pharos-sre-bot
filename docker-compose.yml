@@ -1,0 +1,56 @@
+# Local dev dependencies for the troubleshooting agent.
+# The agent itself runs via `uv run tsa api|ingest` on the host and talks to these
+# over localhost. Bring them up with:  docker compose up -d
+#
+# Secrets/config come from a local .env file (see .env.example). Never commit .env.
+
+services:
+  # --- Vector database -------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333" # REST API + web dashboard (http://localhost:6333/dashboard)
+      - "6334:6334" # gRPC
+    volumes:
+      - qdrant_storage:/qdrant/storage # persist the index across restarts
+    restart: unless-stopped
+
+  # --- Grafana MCP server ----------------------------------------------------
+  # Exposes Grafana (Prometheus/Loki/dashboards/alerts) as MCP tools the agent
+  # can call. Run over a NETWORK transport (SSE) so the host-side agent can reach
+  # it on localhost — stdio transport only works for a co-located child process.
+  grafana-mcp:
+    image: mcp/grafana:latest
+    container_name: grafana-mcp
+    # Transport flag / listen address can vary by image tag — verify with:
+    #   docker run --rm mcp/grafana:latest --help
+    command: ["-t", "streamable-http", "--address", "0.0.0.0:9000"]
+    environment:
+      # Use the ingress hostname so the HTTP client sends Host: grafana.lighthouse.local
+      # (the header the ingress routes on). The name is resolved via extra_hosts below.
+      GRAFANA_URL: http://grafana.lighthouse.local
+      GRAFANA_SERVICE_ACCOUNT_TOKEN: ${GRAFANA_SERVICE_ACCOUNT_TOKEN}
+    extra_hosts:
+      # Map the ingress hostname to the ingress IP inside the container.
+      # If the ingress serves HTTP on a non-80 port, add it to GRAFANA_URL above.
+      - "grafana.lighthouse.local:192.168.10.122"
+    ports:
+      - "9000:9000"
+    restart: unless-stopped
+
+
+  kubernetes-mcp:
+    image: ghcr.io/containers/kubernetes-mcp-server:latest 
+    container_name: kubernetes-mcp
+    # Transport flag / listen address can vary by image tag — verify with:
+    #   docker run --rm mcp/grafana:latest --help
+    command: ["--read-only", "--disable-destructive", "--port","9001", "--kubeconfig", "/kubeconfig/lh-satellite-kubeconfig"]
+    ports:
+      - "9001:9001"
+    restart: unless-stopped
+    volumes:
+      - ./lh-satellite-kubeconfig:/kubeconfig/lh-satellite-kubeconfig:ro
+
+volumes:
+  qdrant_storage:

@@ -1,0 +1,169 @@
+# Default values for pharos-sre-bot.
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+image:
+  repository: pharos-sre-bot # set to your built/published agent image
+  tag: "" # defaults to .Chart.appVersion when empty
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  # If create is false, the named (existing) SA is used. Empty + create=true -> chart fullname.
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+
+# ClusterIP only — NO ingress by design (alert sources reach the webhook in-cluster).
+service:
+  type: ClusterIP
+  port: 7070
+
+# ---------------------------------------------------------------------------
+# The agent itself (main container). Env maps 1:1 to pydantic-settings Settings.
+# ---------------------------------------------------------------------------
+agent:
+  port: 7070
+  # Run `tsa ingest` once at container start before launching the API. Wraps the
+  # command as: `tsa ingest || true; exec tsa api`. Needs Qdrant reachable; with
+  # the Qdrant sidecar there is a brief startup race, so the agent's first
+  # ingest may retry — fine for a PoC. Default off; ingest out-of-band instead.
+  ingestOnStart: false
+  resources: {}
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 20
+  readinessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  # Static agent env, keyed by the ACTUAL env-var name. Every entry is rendered
+  # verbatim and is fully overridable — add/remove keys freely. The derived vars
+  # (PORT, LOCAL_RUNBOOK_PATH, VECTOR_DB_URL, GRAFANA_MCP_URL, K8S_MCP_URL) are
+  # NOT here: the chart computes them from the sidecar/runbook toggles below.
+  env:
+    HOST: "0.0.0.0"
+    LOG_LEVEL: "INFO"
+    MODEL: "Qwen3.6-35B-A3B-MTP-UD-Q4_K_XL"
+    MAX_STEPS: "6"
+    COLLECTION_NAME: "runbooks"
+    LLM_BASE_URL: "http://192.168.10.127:9090/v1"
+    GRAFANA_PROMETHEUS_UID: "prometheus"
+  # Fallback URLs used ONLY when the matching sidecar is disabled. When a sidecar
+  # IS enabled the chart points the agent at it on localhost automatically.
+  vectorDbUrl: "http://qdrant:6333"
+  grafanaMcpUrl: ""
+  k8sMcpUrl: ""
+  # Extra raw env vars appended to the agent container. This is where YOU wire
+  # any secrets (e.g. LLM_API_KEY) — the chart creates no Secret of its own.
+  extraEnv: []
+  #  - name: LLM_API_KEY
+  #    valueFrom:
+  #      secretKeyRef:
+  #        name: my-existing-secret   # Vault-synced, etc.
+  #        key: llm-api-key
+  # Pull whole Secrets/ConfigMaps in as env (envFrom) on the agent container.
+  envFrom: []
+  #  - secretRef:
+  #      name: my-existing-secret
+
+# ---------------------------------------------------------------------------
+# Runbooks injected as a ConfigMap. The chart walks the chart-local `runbooks/`
+# folder and loads every file's content into the ConfigMap (keyed by filename),
+# then mounts it at runbooks.mountPath. Drop .md files into chart/.../runbooks/.
+# Or point at an existing ConfigMap instead.
+# ---------------------------------------------------------------------------
+runbooks:
+  enabled: false
+  mountPath: /runbooks
+  existingConfigMap: ""
+
+# ---------------------------------------------------------------------------
+# Qdrant vector DB sidecar (enable/disable) + its PVC.
+# ---------------------------------------------------------------------------
+qdrant:
+  enabled: true
+  image:
+    repository: qdrant/qdrant
+    tag: v1.12.4 # verify against the registry; do not use latest
+    pullPolicy: IfNotPresent
+  httpPort: 6333
+  grpcPort: 6334
+  resources: {}
+  persistence:
+    enabled: true
+    existingClaim: ""
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 5Gi
+
+# ---------------------------------------------------------------------------
+# Grafana MCP sidecar (enable/disable).
+# ---------------------------------------------------------------------------
+grafanaMcp:
+  enabled: false
+  image:
+    repository: mcp/grafana
+    tag: "0.4.1" # verify against the registry; do not use latest
+    pullPolicy: IfNotPresent
+  port: 9000
+  transport: streamable-http
+  grafanaUrl: "https://grafana.prod.internal.p2p.org"
+  # Wire the Grafana service-account token here (the chart creates no Secret).
+  extraEnv: []
+  #  - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
+  #    valueFrom:
+  #      secretKeyRef:
+  #        name: my-existing-secret
+  #        key: grafana-service-account-token
+  envFrom: []
+  resources: {}
+
+# ---------------------------------------------------------------------------
+# Kubernetes MCP sidecar (enable/disable). Read-only by construction.
+#   - in-cluster (default): uses the pod ServiceAccount; enable rbac.create for
+#     a least-privilege read-only ClusterRole bound to that SA.
+#   - external cluster: mount a kubeconfig from an existing Secret.
+# ---------------------------------------------------------------------------
+kubernetesMcp:
+  enabled: false
+  image:
+    repository: ghcr.io/containers/kubernetes-mcp-server
+    tag: "0.0.46" # verify against the registry; do not use latest
+    pullPolicy: IfNotPresent
+  port: 9001
+  readOnly: true
+  disableDestructive: true
+  kubeconfig:
+    existingSecret: ""
+    key: kubeconfig
+  rbac:
+    create: true
+    # Scope of the read-only access granted to the agent ServiceAccount:
+    #   cluster   -> ClusterRole + ClusterRoleBinding. Reads ALL namespaces, plus
+    #                cluster-scoped resources (nodes, namespaces; enables nodes_top).
+    #   namespace -> a Role + RoleBinding in EACH namespace listed below. Reads are
+    #                confined to those namespaces; cluster-scoped reads (nodes) are
+    #                NOT granted, so the agent is structurally unable to look beyond.
+    scope: cluster
+    # Namespaces to grant read access to when scope=namespace.
+    # Empty -> the release namespace.
+    namespaces: []
+  resources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

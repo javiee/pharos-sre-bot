@@ -1,0 +1,224 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pharos-sre-bot.fullname" . }}
+  labels:
+    {{- include "pharos-sre-bot.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "pharos-sre-bot.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pharos-sre-bot.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "pharos-sre-bot.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        # ---- the agent (main container) -----------------------------------
+        - name: agent
+          image: "{{ include "pharos-sre-bot.image" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.agent.ingestOnStart }}
+          command: ["/bin/sh", "-c"]
+          args: ["tsa ingest || true; exec tsa api"]
+          {{- else }}
+          command: ["tsa", "api"]
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.agent.port }}
+              protocol: TCP
+          env:
+            # Static env, straight from .Values.agent.env (fully overridable).
+            {{- range $k, $v := .Values.agent.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            # Derived from the agent port (kept in sync with containerPort/probes).
+            - name: PORT
+              value: {{ .Values.agent.port | quote }}
+            {{- if .Values.runbooks.enabled }}
+            - name: LOCAL_RUNBOOK_PATH
+              value: {{ .Values.runbooks.mountPath | quote }}
+            {{- end }}
+            # Vector DB: in-pod sidecar on localhost when enabled, else the configured URL.
+            - name: VECTOR_DB_URL
+              {{- if .Values.qdrant.enabled }}
+              value: "http://localhost:{{ .Values.qdrant.httpPort }}"
+              {{- else }}
+              value: {{ .Values.agent.vectorDbUrl | quote }}
+              {{- end }}
+            # Grafana MCP: localhost sidecar when enabled, else optional configured URL.
+            {{- if .Values.grafanaMcp.enabled }}
+            - name: GRAFANA_MCP_URL
+              value: "http://localhost:{{ .Values.grafanaMcp.port }}/mcp"
+            {{- else if .Values.agent.grafanaMcpUrl }}
+            - name: GRAFANA_MCP_URL
+              value: {{ .Values.agent.grafanaMcpUrl | quote }}
+            {{- end }}
+            # Kubernetes MCP: localhost sidecar when enabled, else optional configured URL.
+            {{- if .Values.kubernetesMcp.enabled }}
+            - name: K8S_MCP_URL
+              value: "http://localhost:{{ .Values.kubernetesMcp.port }}/mcp"
+            {{- else if .Values.agent.k8sMcpUrl }}
+            - name: K8S_MCP_URL
+              value: {{ .Values.agent.k8sMcpUrl | quote }}
+            {{- end }}
+            # Anything else you want to wire (incl. secrets via valueFrom).
+            {{- with .Values.agent.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.agent.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.agent.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.agent.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.agent.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.runbooks.enabled }}
+          volumeMounts:
+            - name: runbooks
+              mountPath: {{ .Values.runbooks.mountPath }}
+              readOnly: true
+          {{- end }}
+
+        {{- if .Values.qdrant.enabled }}
+        # ---- Qdrant vector DB sidecar -------------------------------------
+        - name: qdrant
+          image: "{{ .Values.qdrant.image.repository }}:{{ .Values.qdrant.image.tag }}"
+          imagePullPolicy: {{ .Values.qdrant.image.pullPolicy }}
+          ports:
+            - name: qdrant-http
+              containerPort: {{ .Values.qdrant.httpPort }}
+            - name: qdrant-grpc
+              containerPort: {{ .Values.qdrant.grpcPort }}
+          {{- with .Values.qdrant.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: qdrant-data
+              mountPath: /qdrant/storage
+        {{- end }}
+
+        {{- if .Values.grafanaMcp.enabled }}
+        # ---- Grafana MCP sidecar ------------------------------------------
+        - name: grafana-mcp
+          image: "{{ .Values.grafanaMcp.image.repository }}:{{ .Values.grafanaMcp.image.tag }}"
+          imagePullPolicy: {{ .Values.grafanaMcp.image.pullPolicy }}
+          args:
+            - "-t"
+            - {{ .Values.grafanaMcp.transport | quote }}
+            - "--address"
+            - "0.0.0.0:{{ .Values.grafanaMcp.port }}"
+          ports:
+            - name: grafana-mcp
+              containerPort: {{ .Values.grafanaMcp.port }}
+          env:
+            - name: GRAFANA_URL
+              value: {{ .Values.grafanaMcp.grafanaUrl | quote }}
+            {{- with .Values.grafanaMcp.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.grafanaMcp.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.grafanaMcp.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
+
+        {{- if .Values.kubernetesMcp.enabled }}
+        # ---- Kubernetes MCP sidecar (read-only) ---------------------------
+        - name: kubernetes-mcp
+          image: "{{ .Values.kubernetesMcp.image.repository }}:{{ .Values.kubernetesMcp.image.tag }}"
+          imagePullPolicy: {{ .Values.kubernetesMcp.image.pullPolicy }}
+          args:
+            {{- if .Values.kubernetesMcp.readOnly }}
+            - "--read-only"
+            {{- end }}
+            {{- if .Values.kubernetesMcp.disableDestructive }}
+            - "--disable-destructive"
+            {{- end }}
+            - "--port"
+            - {{ .Values.kubernetesMcp.port | quote }}
+            {{- if .Values.kubernetesMcp.kubeconfig.existingSecret }}
+            - "--kubeconfig"
+            - "/kubeconfig/{{ .Values.kubernetesMcp.kubeconfig.key }}"
+            {{- end }}
+          ports:
+            - name: k8s-mcp
+              containerPort: {{ .Values.kubernetesMcp.port }}
+          {{- with .Values.kubernetesMcp.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.kubernetesMcp.kubeconfig.existingSecret }}
+          volumeMounts:
+            - name: kubeconfig
+              mountPath: /kubeconfig
+              readOnly: true
+          {{- end }}
+        {{- end }}
+
+      volumes:
+        {{- if .Values.runbooks.enabled }}
+        - name: runbooks
+          configMap:
+            name: {{ .Values.runbooks.existingConfigMap | default (printf "%s-runbooks" (include "pharos-sre-bot.fullname" .)) }}
+        {{- end }}
+        {{- if .Values.qdrant.enabled }}
+        - name: qdrant-data
+          {{- if .Values.qdrant.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.qdrant.persistence.existingClaim | default (printf "%s-qdrant" (include "pharos-sre-bot.fullname" .)) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- if and .Values.kubernetesMcp.enabled .Values.kubernetesMcp.kubeconfig.existingSecret }}
+        - name: kubeconfig
+          secret:
+            secretName: {{ .Values.kubernetesMcp.kubeconfig.existingSecret }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
