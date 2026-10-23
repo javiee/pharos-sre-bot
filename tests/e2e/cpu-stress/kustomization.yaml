@@ -1,0 +1,4 @@
+namespace: tsa-cpu-stress
+resources:
+  - workload.yaml
+  - chaos.yaml

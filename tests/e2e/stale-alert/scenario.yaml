@@ -1,0 +1,16 @@
+name: stale-alert
+title: Stale alert — the pod no longer exists (regression)
+no_workload: true
+wait:
+  type: none
+alert:
+  alertname: KubePodCrashLooping
+  severity: critical
+  namespace: shop # does not exist in this cluster
+  pod: ghost-api-abc123 # does not exist
+  annotations:
+    summary: "Pod ghost-api-abc123 is crash-looping"
+    description: "Pod has been restart-looping (alert from a stale ruleset run)."
+ground_truth: "Stale alert: the pod/namespace no longer exists; the issue already resolved or the pod was replaced."
+expect_tools: [pods_list_in_namespace, events_list]
+runbook: crashloopbackoff.md

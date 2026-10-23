@@ -1,0 +1,90 @@
+# Same two-hop "webserver" as network-delay; here the backend is partitioned
+# instead of delayed. The backend pod is selected so that the api->backend
+# path breaks under either partition direction semantics.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels:
+    app: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          image: python:alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - "-c"
+            - |
+              from http.server import BaseHTTPRequestHandler,HTTPServer
+              import urllib.request
+              def _up():
+                  try:
+                      r=urllib.request.urlopen('http://backend:8080/',timeout=10);return 200,r.read()
+                  except Exception as e:
+                      return 502,str(e).encode()
+              H=type('H',(BaseHTTPRequestHandler,),{'do_GET':lambda s:(s.send_response(*_up()[:1]),s.end_headers(),s.wfile.write(_up()[1])),'log_message':lambda *a:None})
+              HTTPServer(('0.0.0.0',8080),H).serve_forever()
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 128Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: python:alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - "-c"
+            - |
+              from http.server import BaseHTTPRequestHandler,HTTPServer
+              H=type('H',(BaseHTTPRequestHandler,),{'do_GET':lambda s:(s.send_response(200),s.end_headers(),s.wfile.write(b'backend-ok')),'log_message':lambda *a:None})
+              HTTPServer(('0.0.0.0',8080),H).serve_forever()
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 128Mi

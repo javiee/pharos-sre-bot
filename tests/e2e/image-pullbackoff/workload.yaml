@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victim
+  labels:
+    app: victim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: victim
+  template:
+    metadata:
+      labels:
+        app: victim
+    spec:
+      containers:
+        - name: victim
+          # Workload fault (no chaos type expresses this): an image reference
+          # that does not exist -> ErrImagePull / ImagePullBackOff.
+          image: ghcr.io/no-such-org-xyz/no-such-image:latest
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi

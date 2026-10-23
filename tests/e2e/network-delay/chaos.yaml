@@ -1,0 +1,21 @@
+apiVersion: chaos-mesh.org/v2alpha1
+kind: NetworkChaos
+metadata:
+  name: api-to-backend-delay
+spec:
+  action: delay
+  mode: all
+  duration: "600" # stopped early by teardown (CR deletion)
+  selector:
+    labelSelectors:
+      app: api
+    namespaces:
+      - tsa-network-delay
+  delay:
+    latency: "800ms"
+  destination:
+    selector:
+      labelSelectors:
+        app: backend
+      namespaces:
+        - tsa-network-delay

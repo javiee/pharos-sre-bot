@@ -1,0 +1,4 @@
+namespace: tsa-network-partition
+resources:
+  - workload.yaml
+  - chaos.yaml

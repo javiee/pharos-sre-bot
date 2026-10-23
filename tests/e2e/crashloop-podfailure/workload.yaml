@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victim
+  labels:
+    app: victim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: victim
+  template:
+    metadata:
+      labels:
+        app: victim
+    spec:
+      containers:
+        - name: victim
+          image: nginx:alpine
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi

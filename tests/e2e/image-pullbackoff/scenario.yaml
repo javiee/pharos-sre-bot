@@ -1,0 +1,15 @@
+name: image-pullbackoff
+title: ImagePullBackOff — nonexistent image reference
+wait:
+  pod: victim
+  type: imagepullbackoff
+  timeout_s: 150
+alert:
+  alertname: PodImagePullFailed
+  severity: critical
+  annotations:
+    summary: "Pod stuck in ImagePullBackOff"
+    description: "The pod cannot start: the kubelet keeps failing to pull the container image."
+ground_truth: "The container image reference cannot be pulled (bad/nonexistent image); fix the image tag or registry access."
+expect_tools: [pods_get, pods_list_in_namespace]
+runbook: null # no matching runbook — expected RAG-gap finding

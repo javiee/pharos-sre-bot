@@ -1,0 +1,15 @@
+name: oom
+title: OOMKilled via StressChaos memory stressor
+wait:
+  pod: victim
+  type: oomkilled
+  timeout_s: 180
+alert:
+  alertname: PodOOMKilling
+  severity: warning
+  annotations:
+    summary: "Pod is at risk of running out of memory"
+    description: "Container memory is approaching its limit; the pod may be OOMKilled."
+ground_truth: "OOMKilled: the container exceeds its 32Mi memory limit and is killed by the kernel/cgroup."
+expect_tools: [pods_get, pods_log]
+runbook: crashloopbackoff.md

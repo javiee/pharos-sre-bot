@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victim
+  labels:
+    app: victim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: victim
+  template:
+    metadata:
+      labels:
+        app: victim
+    spec:
+      containers:
+        - name: victim
+          image: nginx:alpine
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: app-config
+              mountPath: /etc/app
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+      volumes:
+        # Workload fault (no chaos type expresses this): the ConfigMap is never
+        # created -> pod stuck in ContainerCreating (CreateContainerConfigError).
+        - name: app-config
+          configMap:
+            name: app-config

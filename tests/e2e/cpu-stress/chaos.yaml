@@ -1,0 +1,16 @@
+apiVersion: chaos-mesh.org/v2alpha1
+kind: StressChaos
+metadata:
+  name: victim-cpu
+spec:
+  action: stress
+  duration: "600" # stopped early by teardown (CR deletion)
+  selector:
+    labelSelectors:
+      app: victim
+    namespaces:
+      - tsa-cpu-stress
+  stressors:
+    cpu:
+      workers: 1
+      load: 100 # 100% of one core, inside the pod cgroup (throttled by the 250m limit)

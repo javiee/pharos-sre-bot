@@ -1,0 +1,19 @@
+name: pvc-filling
+title: PVC filling up (unbounded file growth)
+wait:
+  pod: victim
+  # Wait for the pod, then poll the PVC until it is nearly full.
+  type: timer
+  timeout_s: 60
+  verify_exec: "df -m /data"
+  verify_max_available_mib: 3
+  verify_timeout_s: 180
+alert:
+  alertname: PVCAlmostFull
+  severity: warning
+  annotations:
+    summary: "PVC victim-data is almost full"
+    description: "Volume usage is approaching 100%; application writes are about to fail."
+ground_truth: "The PVC is filling up with unbounded file growth; check free space, the usage trend, and the growth rate."
+expect_tools: [query_prometheus]
+runbook: persistentvolume-disk-full.md

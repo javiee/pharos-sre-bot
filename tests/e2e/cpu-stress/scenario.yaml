@@ -1,0 +1,16 @@
+name: cpu-stress
+title: CPU saturation / throttling via StressChaos CPU stressor
+wait:
+  pod: victim
+  # Give the CFS-throttling metrics time to accumulate before firing the alert.
+  type: timer
+  timeout_s: 150
+alert:
+  alertname: HighCPUThrottling
+  severity: warning
+  annotations:
+    summary: "Webserver pod is CPU-throttled, request latency is rising"
+    description: "p95 latency on the victim pod is degrading; the pod appears CPU-saturated."
+ground_truth: "The pod is CPU-saturated/throttled (busy process against a 250m limit); raise limits or reduce the load."
+expect_tools: [query_prometheus]
+runbook: high-latency-webserver.md

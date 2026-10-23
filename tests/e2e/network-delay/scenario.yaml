@@ -1,0 +1,17 @@
+name: network-delay
+title: Slow downstream dependency via NetworkChaos delay
+wait:
+  pods: [api, backend]
+  type: ready
+  timeout_s: 180
+  settle_s: 60 # let delayed requests flow so the symptom is "live" at alert time
+alert:
+  alertname: HighRequestLatency
+  severity: warning
+  pod_label: api
+  annotations:
+    summary: "api p95 latency ~800ms, baseline was 50ms"
+    description: "The api is responding slowly; error rate is still normal. Upstream users report sluggish responses."
+ground_truth: "A ~800ms network delay on the api->backend hop inflates end-to-end latency; the pods themselves are healthy."
+expect_tools: [query_prometheus]
+runbook: high-latency-webserver.md

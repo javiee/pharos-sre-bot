@@ -1,0 +1,17 @@
+name: network-partition
+title: Partitioned dependency via NetworkChaos partition
+wait:
+  pods: [api, backend]
+  type: ready
+  timeout_s: 180
+  settle_s: 45
+alert:
+  alertname: ApiDependencyErrors
+  severity: critical
+  pod_label: api
+  annotations:
+    summary: "api returning 502s; backend looks healthy but is unreachable"
+    description: "The api's downstream calls are failing; both pods report Running and no restarts."
+ground_truth: "A network partition isolates the backend pod; api calls fail even though both pods look healthy (connectivity problem, not a pod problem)."
+expect_tools: [pods_get, pods_list_in_namespace]
+runbook: null # no matching runbook — tests signal-only reasoning

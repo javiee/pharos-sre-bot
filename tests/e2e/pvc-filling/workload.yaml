@@ -1,0 +1,47 @@
+# 20Mi PVC filled at ~1Mi/s by the victim -> full in roughly 20-40s.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: victim-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victim
+  labels:
+    app: victim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: victim
+  template:
+    metadata:
+      labels:
+        app: victim
+    spec:
+      containers:
+        - name: victim
+          image: busybox:alpine
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "while :; do head -c 1M /dev/zero >> /data/fill 2>/dev/null; sleep 1; done"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: victim-data
