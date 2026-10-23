@@ -59,7 +59,7 @@ agent:
     MODEL: "Qwen3.6-35B-A3B-MTP-UD-Q4_K_XL"
     MAX_STEPS: "6"
     COLLECTION_NAME: "runbooks"
-    LLM_BASE_URL: "http://192.168.10.127:9090/v1"
+    LLM_BASE_URL: "http://192.168.10.213:13305/api/v1"
     GRAFANA_PROMETHEUS_UID: "prometheus"
   # Fallback URLs used ONLY when the matching sidecar is disabled. When a sidecar
   # IS enabled the chart points the agent at it on localhost automatically.
