@@ -117,8 +117,8 @@ grafanaMcp:
   enabled: false
   image:
     repository: mcp/grafana
-    tag: "0.4.1" # verify against the registry; do not use latest
-    pullPolicy: IfNotPresent
+    tag: "latest" # mcp/grafana publishes only :latest on Docker Hub
+    pullPolicy: Always # floating tag -> always re-pull
   port: 9000
   transport: streamable-http
   grafanaUrl: "https://grafana.prod.internal.p2p.org"
@@ -142,7 +142,7 @@ kubernetesMcp:
   enabled: false
   image:
     repository: ghcr.io/containers/kubernetes-mcp-server
-    tag: "0.0.46" # verify against the registry; do not use latest
+    tag: "v0.0.63" # v-prefixed tags; verify latest at ghcr.io/containers/kubernetes-mcp-server
     pullPolicy: IfNotPresent
   port: 9001
   readOnly: true

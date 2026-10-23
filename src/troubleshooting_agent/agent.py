@@ -42,6 +42,8 @@ class AgentState(TypedDict, total=False):
     signals_text: str
     alert_time: str    
     namespace: str                   # ISO time the alert was received (set by the webhook)
+    pod: str                         # affected pod (from alert labels), if any
+    node: str                        # affected node (from alert labels), if any
 
 class SignalRequest(BaseModel):
     """A request from the LLM to fetch one Grafana signal.
@@ -184,11 +186,19 @@ def build_graph(store: VectorStore, client: OpenAI, signals: SignalProvider | No
                 "enough information to diagnose now."
             )
         ns = state.get("namespace")
-        namespace_promt =  (
-          f"\n\nThe affected namespace is '{ns}'. For Kubernetes tools,pass "
-          f'"namespace": "{ns}" in arguments. For query_prometheus, include '
-          f'`namespace="{ns}"` as a label in the PromQL expr.'
-        )
+        pod = state.get("pod")
+        node = state.get("node")
+        hints = []
+        if ns and ns != "unknown":
+            hints.append(
+                f'namespace "{ns}" — pass "namespace": "{ns}" to Kubernetes tools and '
+                f'include namespace="{ns}" as a label in query_prometheus expressions'
+            )
+        if pod:
+            hints.append(f'pod "{pod}" — use it for pods_log / pods_get')
+        if node:
+            hints.append(f'node "{node}" — use it for node tools (nodes_log, nodes_top)')
+        namespace_promt = ("\n\nTargeting hints: " + "; ".join(hints) + ".") if hints else ""
         prompt = (
             "You are an on-call infrastructure assistant. Given an alert and "
             "runbook excerpts, reason about the likely cause.\n\n"
