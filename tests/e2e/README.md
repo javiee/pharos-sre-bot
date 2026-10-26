@@ -11,10 +11,11 @@ tests/e2e/<scenario>/
   scenario.yaml        # wait gate, alert payload, ground truth, expected tools
 ```
 
-- **Chaos scenarios** (PodChaos / StressChaos / NetworkChaos): external
-  disruptions — crash loop, OOM, CPU saturation, network delay, partition.
-- **Workload-fault scenarios**: defects in the workload itself (bad image,
-  missing ConfigMap, filling PVC) — no chaos type expresses these.
+- **Chaos scenarios** (StressChaos / NetworkChaos): external disruptions —
+  OOM, CPU saturation, network delay, network partition.
+- **Workload-fault scenarios**: defects in the workload itself (crash loop via
+  bad startup validation, bad image, missing ConfigMap, filling PVC) — no
+  chaos type expresses these.
 - **stale-alert**: no fixtures; regression case for alerts about pods that no
   longer exist.
 
@@ -100,12 +101,48 @@ port-forward-only (do not expose it via ngrok).
 
 | scenario | fault | mechanism | wait gate | runbook |
 |---|---|---|---|---|
-| crashloop-podfailure | CrashLoopBackOff | `PodChaos pod-failure` | phase=CrashLoopBackOff | crashloopbackoff |
-| oom | OOMKilled | `StressChaos` memory (32Mi-limit victim) | lastState=OOMKilled | crashloopbackoff (OOM) |
+| crashloop | CrashLoopBackOff | workload fault: app exits non-zero at startup | phase=CrashLoopBackOff | crashloopbackoff |
+| oom | OOMKilled | `StressChaos` memory 36M (32Mi-limit victim) | lastState=OOMKilled | crashloopbackoff (OOM) |
 | cpu-stress | CPU saturation / throttling | `StressChaos` CPU (250m-limit victim) | ready + 150s settle | high-latency-webserver (CPU) |
 | network-delay | slow downstream dependency | `NetworkChaos` delay 800ms api→backend | both ready + 60s settle | high-latency-webserver (dependency) |
-| network-partition | unreachable dependency | `NetworkChaos` partition (backend) | both ready + 45s settle | none (signal-only) |
+| network-partition | unreachable dependency | `NetworkChaos` partition (backend) | **api** ready + 45s settle | none (signal-only) |
 | image-pullbackoff | ImagePullBackOff | workload fault: nonexistent image | waiting=ImagePullBackOff | none (RAG gap) |
 | missing-configmap | CreateContainerConfigError | workload fault: missing ConfigMap | waiting=CreateContainerConfigError | crashloopbackoff (dependency) |
 | pvc-filling | PVC nearly full | workload fault: 20Mi PVC + 1Mi/s filler | df available ≤ 3Mi | persistentvolume-disk-full |
 | stale-alert | (regression) nonexistent pod | none | — | crashloopbackoff |
+
+## Gotchas (learned the hard way, verified on the live cluster)
+
+- **`network-delay` needs the headless Service.** Chaos Mesh builds the chaos
+  ipset from the target's **pod IP**, but traffic to a ClusterIP is DNATed in
+  the **node** netns — the source pod's egress is never addressed to the pod
+  IP, so the ipset match (and thus the delay) can never fire. `clusterIP: None`
+  makes DNS resolve straight to the pod IP. (Without it the CR reports
+  `AllInjected=True` and everything is in place inside the pod netns — the
+  iptables counters just never move. Very convincing false positive.)
+- **`network-partition` deliberately gates on the api only.** The partition
+  drops ALL egress from the backend, which also breaks the backend's own
+  readiness probes (SYN-ACKs never leave) → the backend flips `0/1` while
+  staying `Running` with no restarts. That is expected and part of the
+  diagnosis signal. Its Service is a **regular ClusterIP** on purpose: it
+  doesn't need pod-IP matching, and the name stays resolvable when the
+  backend is NotReady (the failure then looks like a classic unreachable
+  dependency, not a DNS error).
+- **`crashloop` is a workload fault, not PodChaos.** `PodChaos pod-failure`
+  is one-shot (injectedCount=1, process gets SIGKILL'd and the container
+  exits 0) — it cannot hold a crash loop. The fixture instead runs an app
+  that validates its config at startup and exits non-zero.
+- **Chaos Mesh 2.8.6 schema on this cluster:** CRDs serve `v1alpha1`;
+  `duration` needs a unit (`"600s"`); `StressChaos` has **no** `spec.action`
+  and **requires** `spec.mode: all`; `NetworkChaos` targets go in `spec.target`
+  (a full PodSelector: `mode` + `selector`), not `destination`.
+- **k3s daemon prerequisites** (done in lighthouse-ops, without them *every*
+  network/stress injection silently no-ops or fails): the chaos-daemon must
+  run with `--runtime containerd` + the k3s socket symlink, and the daemon's
+  `PATH` must be prepended with `/var/run/chaos-shim` (shims exec
+  `iptables-nft` — the image hardcodes legacy iptables, which cannot work on
+  the nftables-backend kernel). See `gitops/apps/chaos-mesh/` in
+  lighthouse-ops (`deploy.yaml` + `chaos-daemon-node-fix.yaml`).
+- **Manual `kubectl apply -f chaos.yaml` without `-n`** lands in the
+  kubeconfig's default namespace (`hermes-agent` here), not the fixture's —
+  always apply via `-k` (the kustomization pins the namespace) or with `-n`.
