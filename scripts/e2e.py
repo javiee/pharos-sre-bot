@@ -117,12 +117,18 @@ class PortForward:
         raise RuntimeError(f"port-forward did not come up within 30s: {self._stderr_tail()}")
 
     def ensure(self) -> None:
-        """Restart the forward if kubectl died. The long-lived stream to the
-        apiserver can drop while fresh kubectl calls still work (seen on k3s),
-        which takes the local listener down with it."""
+        """Make sure the forward is alive AND accepting connections. The
+        long-lived stream to the apiserver can drop or hang (while fresh
+        kubectl calls still work), taking the local listener down with it."""
         if self.proc is not None and self.proc.poll() is None:
-            return
+            try:
+                with socket.create_connection(("127.0.0.1", self.port), timeout=3):
+                    return
+            except OSError:
+                pass  # process alive but not listening -> restart below
         print(f"  port-forward is down ({self._stderr_tail() or 'no stderr'}); restarting")
+        self.stop()
+        time.sleep(1)  # let the port be released
         self.start()
 
     def stop(self) -> None:
@@ -151,9 +157,8 @@ class PortForward:
                 return e.code, e.read().decode()
             except urllib.error.URLError as e:
                 last_err = e
-                if "refused" not in str(e):
-                    raise
-                # connection refused -> the forward died; restart and retry once
+                # any transport failure (refused / timed out) -> the forward is
+                # likely dead; restart and retry once.
         raise RuntimeError(f"webhook POST failed even after port-forward restart: {last_err}")
 
 
