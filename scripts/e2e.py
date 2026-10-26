@@ -304,11 +304,11 @@ def find_agent_pod(k8s: K8s) -> str:
     if rc != 0 or not out:
         raise RuntimeError(f"no agent pod found: {err}")
     pod = out.splitlines()[0].split("/")[-1]
-    rc, ready, _ = k8s.run(
-        ["-n", AGENT_NS, "get", pod, "-o", "jsonpath={.status.containerStatuses[*].ready}"]
+    rc, ready, err = k8s.run(
+        ["-n", AGENT_NS, "get", "pod", pod, "-o", "jsonpath={.status.containerStatuses[*].ready}"]
     )
     if rc != 0 or "false" in ready:
-        raise RuntimeError(f"agent pod {pod} not fully ready: {ready}")
+        raise RuntimeError(f"agent pod {pod} not fully ready: {ready} {err}")
     return pod
 
 
@@ -420,7 +420,7 @@ def teardown_ns(k8s: K8s, ns: str, timeout: int = 120) -> bool:
 def residue_check(k8s: K8s) -> dict:
     rc, out, _ = k8s.run(["get", "namespaces", "-o", "name"])
     left_ns = [l for l in out.splitlines() if TS_PREFIX in l] if rc == 0 else []
-    rc2, out2, _ = k8s.run(["get", "podchaos, stresschaos, networkchaos", "-A", "-o", "name"])
+    rc2, out2, _ = k8s.run(["get", "podchaos,stresschaos,networkchaos", "-A", "-o", "name"])
     left_chaos = [l for l in out2.splitlines() if l] if rc2 == 0 else []
     return {"namespaces": left_ns, "chaos_crs": left_chaos}
 
