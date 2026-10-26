@@ -116,10 +116,11 @@ class PortForward:
         self.stop()
         raise RuntimeError(f"port-forward did not come up within 30s: {self._stderr_tail()}")
 
-    def ensure(self) -> None:
+    def ensure(self, tries: int = 3) -> None:
         """Make sure the forward is alive AND accepting connections. The
         long-lived stream to the apiserver can drop or hang (while fresh
-        kubectl calls still work), taking the local listener down with it."""
+        kubectl calls still work), and the LAN to the cluster hiccups now
+        and then — so retry the (re)start through a short outage window."""
         if self.proc is not None and self.proc.poll() is None:
             try:
                 with socket.create_connection(("127.0.0.1", self.port), timeout=3):
@@ -128,8 +129,17 @@ class PortForward:
                 pass  # process alive but not listening -> restart below
         print(f"  port-forward is down ({self._stderr_tail() or 'no stderr'}); restarting")
         self.stop()
-        time.sleep(1)  # let the port be released
-        self.start()
+        last_err = ""
+        for attempt in range(1, tries + 1):
+            time.sleep(1)  # let the port be released
+            try:
+                self.start()
+                return
+            except RuntimeError as e:
+                last_err = str(e)
+                print(f"  port-forward restart attempt {attempt}/{tries} failed: {last_err}")
+                time.sleep(15)
+        raise RuntimeError(f"port-forward could not (re)start: {last_err}")
 
     def stop(self) -> None:
         if self.proc and self.proc.poll() is None:
@@ -449,11 +459,22 @@ def teardown_ns(k8s: K8s, ns: str, timeout: int = 120) -> bool:
     k8s.run(["delete", "namespace", ns, "--wait=false", "--ignore-not-found"])
     deadline = time.time() + timeout
     while time.time() < deadline:
-        rc, _, _ = k8s.run(["get", "namespace", ns])
-        if rc != 0:
+        rc, _, err = k8s.run(["get", "namespace", ns])
+        if rc != 0 and "NotFound" in err:
             return True
+        # rc != 0 without NotFound is a network/apiserver hiccup: keep waiting
         time.sleep(5)
     return False
+
+
+def sweep_stale_ns(k8s: K8s) -> None:
+    """Delete tsa-* namespaces left behind by an interrupted previous run,
+    so a stale fixture never shadows the one we are about to apply."""
+    rc, out, _ = k8s.run(["get", "namespaces", "-o", "name"])
+    stale = [l.split("/")[-1] for l in out.splitlines() if TS_PREFIX in l] if rc == 0 else []
+    for ns in stale:
+        print(f"  cleaning stale ns {ns} from a previous run")
+        teardown_ns(k8s, ns)
 
 
 def residue_check(k8s: K8s) -> dict:
@@ -632,6 +653,7 @@ def main() -> int:
     chaos_ok = k8s.run(["get", "crd", "podchaos.chaos-mesh.org"])[0] == 0
     if not chaos_ok:
         print("  WARNING: podchaos CRD not found — chaos scenarios will fail (is chaos-mesh installed via Flux?)")
+    sweep_stale_ns(k8s)
 
     pf = PortForward(k8s, args.port)
     pf.start()
