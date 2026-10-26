@@ -29,6 +29,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -80,25 +81,49 @@ class PortForward:
         self.k8s = k8s
         self.port = port
         self.proc: subprocess.Popen | None = None
+        self.stderr_path: str | None = None
+
+    def _stderr_tail(self) -> str:
+        if not self.stderr_path:
+            return ""
+        try:
+            with open(self.stderr_path, errors="replace") as f:
+                return f.read()[-400:].strip()
+        except OSError:
+            return ""
 
     def start(self) -> None:
+        # stderr to a file, not a PIPE: an undrained PIPE blocks kubectl once
+        # it fills, and the file still lets us diagnose an early death.
+        fh = tempfile.NamedTemporaryFile(prefix="pf-", suffix=".log", delete=False)
+        fh.close()
+        self.stderr_path = fh.name
         self.proc = subprocess.Popen(
             self.k8s.base
             + ["-n", AGENT_NS, "port-forward", f"svc/{AGENT_SERVICE}", f"{self.port}:7070"],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
+            stderr=open(self.stderr_path, "wb"),
         )
         deadline = time.time() + 30
         while time.time() < deadline:
             if self.proc.poll() is not None:
-                raise RuntimeError(f"port-forward exited early: {self.proc.stderr.read()}")
+                raise RuntimeError(f"port-forward exited early: {self._stderr_tail()}")
             try:
                 with socket.create_connection(("127.0.0.1", self.port), timeout=2):
                     return
             except OSError:
                 time.sleep(1)
-        raise RuntimeError("port-forward did not come up within 30s")
+        self.stop()
+        raise RuntimeError(f"port-forward did not come up within 30s: {self._stderr_tail()}")
+
+    def ensure(self) -> None:
+        """Restart the forward if kubectl died. The long-lived stream to the
+        apiserver can drop while fresh kubectl calls still work (seen on k3s),
+        which takes the local listener down with it."""
+        if self.proc is not None and self.proc.poll() is None:
+            return
+        print(f"  port-forward is down ({self._stderr_tail() or 'no stderr'}); restarting")
+        self.start()
 
     def stop(self) -> None:
         if self.proc and self.proc.poll() is None:
@@ -110,17 +135,26 @@ class PortForward:
 
     def post(self, path: str, payload: dict | bytes) -> tuple[int, str]:
         data = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{self.port}{path}",
-            data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=30) as r:
-                return r.status, r.read().decode()
-        except urllib.error.HTTPError as e:
-            return e.code, e.read().decode()
+        last_err: Exception | None = None
+        for attempt in (1, 2):
+            self.ensure()
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{self.port}{path}",
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    return r.status, r.read().decode()
+            except urllib.error.HTTPError as e:
+                return e.code, e.read().decode()
+            except urllib.error.URLError as e:
+                last_err = e
+                if "refused" not in str(e):
+                    raise
+                # connection refused -> the forward died; restart and retry once
+        raise RuntimeError(f"webhook POST failed even after port-forward restart: {last_err}")
 
 
 @dataclass
