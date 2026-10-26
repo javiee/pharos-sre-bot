@@ -30,6 +30,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -77,11 +78,18 @@ class K8s:
 
 
 class PortForward:
+    # An idle port-forward stream gets reaped upstream after ~150-176s on this
+    # cluster ("lost connection to pod"), which kills the kubectl process. Ping
+    # through it well inside that window so it never goes idle.
+    _KEEPALIVE_S = 45
+
     def __init__(self, k8s: K8s, port: int):
         self.k8s = k8s
         self.port = port
         self.proc: subprocess.Popen | None = None
         self.stderr_path: str | None = None
+        self._stop_evt = threading.Event()
+        self._ka_thread: threading.Thread | None = None
 
     def _stderr_tail(self) -> str:
         if not self.stderr_path:
@@ -91,6 +99,16 @@ class PortForward:
                 return f.read()[-400:].strip()
         except OSError:
             return ""
+
+    def _keepalive(self) -> None:
+        while not self._stop_evt.wait(self._KEEPALIVE_S):
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{self.port}/healthz", timeout=10
+                ) as r:
+                    r.read()
+            except Exception:
+                pass  # a real death is handled by ensure() on the next POST
 
     def start(self) -> None:
         # stderr to a file, not a PIPE: an undrained PIPE blocks kubectl once
@@ -110,11 +128,20 @@ class PortForward:
                 raise RuntimeError(f"port-forward exited early: {self._stderr_tail()}")
             try:
                 with socket.create_connection(("127.0.0.1", self.port), timeout=2):
+                    self._start_keepalive()
                     return
             except OSError:
                 time.sleep(1)
         self.stop()
         raise RuntimeError(f"port-forward did not come up within 30s: {self._stderr_tail()}")
+
+    def _start_keepalive(self) -> None:
+        self._stop_evt = threading.Event()
+        if self._ka_thread is None or not self._ka_thread.is_alive():
+            self._ka_thread = threading.Thread(
+                target=self._keepalive, daemon=True, name="pf-keepalive"
+            )
+            self._ka_thread.start()
 
     def ensure(self, tries: int = 3) -> None:
         """Make sure the forward is alive AND accepting connections. The
@@ -142,6 +169,7 @@ class PortForward:
         raise RuntimeError(f"port-forward could not (re)start: {last_err}")
 
     def stop(self) -> None:
+        self._stop_evt.set()
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
             try:
