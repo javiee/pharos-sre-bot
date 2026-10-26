@@ -1,4 +1,0 @@
-namespace: tsa-crashloop-podfailure
-resources:
-  - workload.yaml
-  - chaos.yaml

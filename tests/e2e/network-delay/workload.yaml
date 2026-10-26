@@ -87,3 +87,19 @@ spec:
             limits:
               cpu: 300m
               memory: 128Mi
+---
+# Deployments have no DNS name; the api reaches the backend via this Service.
+# MUST be headless: chaos-mesh targets the backend by POD IP, and traffic
+# addressed to a ClusterIP is DNATed in the node netns, so the source pod's
+# egress never shows the pod IP and the chaos ipset can never match.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  clusterIP: None
+  selector:
+    app: backend
+  ports:
+    - port: 8080
+      targetPort: 8080

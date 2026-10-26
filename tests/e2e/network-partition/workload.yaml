@@ -88,3 +88,20 @@ spec:
             limits:
               cpu: 300m
               memory: 128Mi
+---
+# Deployments have no DNS name; the api reaches the backend via this Service.
+# Regular ClusterIP on purpose: unlike the delay fixture, this scenario does
+# NOT need pod-IP addressing (the partition drops ALL of the backend's egress
+# unconditionally). A ClusterIP keeps the name resolvable even once the
+# partitioned backend flips NotReady, so the api's failure looks like the
+# classic "backend unreachable" timeout rather than a DNS error.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8080
+      targetPort: 8080

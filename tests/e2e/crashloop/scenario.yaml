@@ -1,5 +1,5 @@
-name: crashloop-podfailure
-title: CrashLoopBackOff via PodChaos pod-failure
+name: crashloop
+title: CrashLoopBackOff — app exits non-zero at startup
 wait:
   pod: victim
   type: crashloop
@@ -10,6 +10,6 @@ alert:
   annotations:
     summary: "Pod is crash-looping"
     description: "The pod has entered CrashLoopBackOff with a rising restart count."
-ground_truth: "The container is repeatedly failing at runtime and the pod is crash-looping; inspect last state and previous logs."
+ground_truth: "The application exits with a non-zero code at startup (config validation failure); inspect last state and previous logs."
 expect_tools: [pods_get, pods_log, events_list]
 runbook: crashloopbackoff.md

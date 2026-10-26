@@ -1,10 +1,10 @@
-apiVersion: chaos-mesh.org/v2alpha1
+apiVersion: chaos-mesh.org/v1alpha1
 kind: StressChaos
 metadata:
   name: victim-cpu
 spec:
-  action: stress
-  duration: "600" # stopped early by teardown (CR deletion)
+  mode: all
+  duration: "600s" # stopped early by teardown (CR deletion)
   selector:
     labelSelectors:
       app: victim

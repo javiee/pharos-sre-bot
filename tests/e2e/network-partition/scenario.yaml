@@ -1,7 +1,10 @@
 name: network-partition
 title: Partitioned dependency via NetworkChaos partition
 wait:
-  pods: [api, backend]
+  # The partition drops ALL egress from the backend, which also breaks its own
+  # readiness probes (SYN-ACKs never leave) -> backend flips NotReady. Only the
+  # api (untouched by the chaos) keeps being Ready, so gate on the api alone.
+  pods: [api]
   type: ready
   timeout_s: 180
   settle_s: 45
@@ -11,7 +14,7 @@ alert:
   pod_label: api
   annotations:
     summary: "api returning 502s; backend looks healthy but is unreachable"
-    description: "The api's downstream calls are failing; both pods report Running and no restarts."
-ground_truth: "A network partition isolates the backend pod; api calls fail even though both pods look healthy (connectivity problem, not a pod problem)."
+    description: "The api's downstream calls fail (connection refused); both pods report Running and no restarts."
+ground_truth: "A network partition drops all egress from the backend pod; api calls fail (connection refused/timeout) even though neither pod restarts. The backend may additionally report NotReady (its own probe responses are dropped too) - a connectivity problem, not a pod health problem."
 expect_tools: [pods_get, pods_list_in_namespace]
 runbook: null # no matching runbook — tests signal-only reasoning

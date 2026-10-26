@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: victim
-          image: busybox:alpine
+          image: busybox:stable
           imagePullPolicy: IfNotPresent
           command: ["sh", "-c", "while :; do sleep 3600; done"]
           resources:

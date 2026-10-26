@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
         - name: victim
-          image: busybox:alpine
+          image: busybox:stable
           imagePullPolicy: IfNotPresent
           command: ["sh", "-c", "while :; do head -c 1M /dev/zero >> /data/fill 2>/dev/null; sleep 1; done"]
           volumeMounts:

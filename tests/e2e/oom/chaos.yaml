@@ -1,10 +1,10 @@
-apiVersion: chaos-mesh.org/v2alpha1
+apiVersion: chaos-mesh.org/v1alpha1
 kind: StressChaos
 metadata:
   name: victim-oom
 spec:
-  action: stress
-  duration: "600" # stopped early by teardown (CR deletion)
+  mode: all
+  duration: "600s" # stopped early by teardown (CR deletion)
   selector:
     labelSelectors:
       app: victim
@@ -13,7 +13,8 @@ spec:
   stressors:
     memory:
       workers: 1
-      # SMOKE-GATE: `size` percentage must be relative to the TARGET POD's memory
-      # limit (32Mi here), not the node's. The oom smoke run verifies this with
-      # node-level monitoring before the matrix runs.
-      size: "100"
+      # Absolute size, deliberately just over the victim's 32Mi limit: OOMs the
+      # victim's cgroup while remaining harmless (36Mi) even if the stressor
+      # ever ran at node level. (A percentage like "100" would be ambiguous and
+      # node-relative interpretation would pressure the whole node.)
+      size: "36M"

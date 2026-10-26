@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victim
+  labels:
+    app: victim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: victim
+  template:
+    metadata:
+      labels:
+        app: victim
+    spec:
+      containers:
+        - name: victim
+          image: busybox:stable
+          imagePullPolicy: IfNotPresent
+          # Workload fault: the app crashes at startup with a non-zero exit. The
+          # kubelet restarts it with backoff -> CrashLoopBackOff, rising RESTARTS.
+          # (Chaos Mesh pod-chaos is one-shot and won't hold a crash loop, so the
+          # classic crash-loop symptom is produced by the workload itself.)
+          command: ["sh", "-c", "echo 'FATAL: config validation failed at startup'; exit 1"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi

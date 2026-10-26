@@ -629,6 +629,9 @@ def main() -> int:
 
             t0 = time.time()
             if not sc.no_workload:
+                # create the ns first: kustomize applies resources alphabetically,
+                # so the Deployment would land before the Namespace otherwise.
+                k8s.run(["create", "namespace", sc.ns])  # idempotent enough; error ignored
                 rc, _, err = k8s.run(["apply", "-k", str(sc.path)], timeout=180)
                 if rc != 0:
                     print(f"  apply FAILED: {err}")

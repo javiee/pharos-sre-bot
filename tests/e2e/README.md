@@ -53,7 +53,8 @@ and records tools/chunks; **cause-match is judged by you** — compare
 
 ```bash
 NS=tsa-oom
-kubectl apply -k tests/e2e/oom/                      # fault starts
+kubectl create ns $NS                        # first (kustomize applies D before N)
+kubectl apply -k tests/e2e/oom/              # fault starts
 kubectl -n $NS get pods -w                           # wait for OOMKilled
 curl -s -X POST localhost:7070/webhook/alertmanager -H 'Content-Type: application/json' -d '{
   "status":"firing",
